@@ -11,6 +11,7 @@ import PyExt
 import Privilege
 import Config
 from Utils import FileUtils
+import tempfile
 
 
 STATUS_NONE = 0
@@ -683,20 +684,35 @@ class StdChal:
             nonlocal result_stat
             nonlocal result_pass
 
+            # trim space
+            temp_out = tempfile.TemporaryFile()
+            temp_ans = tempfile.TemporaryFile()
+
+            with os.fdopen(outpipe_fd[0]) as out_txt:
+                for line in out_txt:
+                    temp_out.write((line.rstrip()+'\n').encode())
+
+            with open(ans_path, 'r') as ans_txt:
+                for line in ans_txt:
+                    temp_ans.write((line.rstrip()+'\n').encode())
+
+            temp_out.seek(0)
+            temp_ans.seek(0)
+
             end_flag = False
             if events & IOLoop.READ:
                 while True:
                     try:
-                        data = os.read(outpipe_fd[0], 65536)
+                        data = temp_out.read(65536)
                     except BlockingIOError:
                         break
-                    ansdata = ansfile.read(len(data))
+                    ansdata = temp_ans.read(len(data))
                     if data != ansdata:
                         result_pass = False
                         end_flag = True
                         break
                     if len(ansdata) == 0:
-                        if len(ansfile.read(1)) == 0:
+                        if len(temp_ans.read(1)) == 0:
                             result_pass = True
                         else:
                             result_pass = False
@@ -705,14 +721,14 @@ class StdChal:
 
             if (events & IOLoop.ERROR) or end_flag:
                 if result_pass is None:
-                    if len(ansfile.read(1)) == 0:
+                    if len(temp_ans.read(1)) == 0:
                         result_pass = True
                     else:
                         result_pass = False
 
                 IOLoop.instance().remove_handler(evfd)
-                os.close(outpipe_fd[0])
-                ansfile.close()
+                temp_out.close()
+                temp_ans.close()
 
                 if result_stat is not None:
                     callback((result_pass, result_stat, ''))
